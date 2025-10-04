@@ -2,10 +2,9 @@ defmodule DoomElixir.Raycaster do
   @moduledoc """
   Documentation for `DoomElixir.Raycaster`.
   """
-  alias DoomElixir.{Player, WorldMap}
+  alias DoomElixir.WorldMap
 
   @screen_width 500
-  @screen_height 500
 
   def cast_rays(player) do
     # On va lancer des rayons pour chaque colonne de l'écran
@@ -32,6 +31,11 @@ defmodule DoomElixir.Raycaster do
       distance: distance,
       angle: ray_angle
     }
+  end
+
+  # Version publique pour utilisation externe
+  def cast_single_ray_public(player, screen_x) do
+    cast_single_ray(player, screen_x)
   end
 
   defp trace_ray(start_x, start_y, dir_x, dir_y) do

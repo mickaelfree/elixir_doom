@@ -4,7 +4,6 @@ defmodule DoomElixir.Renderer do
   """
   alias DoomElixir.Raycaster
 
-  @screen_width 40
   @screen_height 20
 
   def render_frame(player) do
