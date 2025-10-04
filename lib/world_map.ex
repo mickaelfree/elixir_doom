@@ -1,0 +1,27 @@
+defmodule DoomElixir.WorldMap do
+  @moduledoc """
+  Documentation for `DoomElixir.WorldMap`.
+
+  """
+  @world_map [
+    [1, 1, 1, 1, 1, 1, 1, 1],
+    [1, 0, 0, 0, 0, 0, 0, 1],
+    [1, 0, 0, 0, 0, 0, 0, 1],
+    [1, 0, 0, 0, 0, 0, 0, 1],
+    [1, 0, 0, 0, 0, 1, 1, 1],
+    [1, 0, 0, 0, 0, 1, 1, 1],
+    [1, 0, 0, 0, 0, 0, 0, 1],
+    [1, 0, 0, 0, 0, 0, 0, 1],
+    [1, 0, 0, 0, 0, 0, 0, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1]
+  ]
+  def get_map, do: @world_map
+
+  def get_cell(x, y) when x >= 0 and y >= 0 do
+    @world_map
+    |> Enum.at(y, [])
+    |> Enum.at(x, 1)
+  end
+
+  def is_wall?(x, y), do: get_cell(x, y) == 1
+end
