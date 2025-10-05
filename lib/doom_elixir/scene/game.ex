@@ -19,14 +19,15 @@ defmodule DoomElixir.Scene.Game do
 
     graph =
       Graph.build()
-      |> render_3d_view(player)
+      |> render_3d_view(player, {0.5, 0.5})
 
     scene =
       scene
       |> assign(
         player: player,
         keys_pressed: MapSet.new(),
-        last_update: System.monotonic_time(:millisecond)
+        last_update: System.monotonic_time(:millisecond),
+        head_position: {0.5, 0.5}  # Position de la tête (centre par défaut)
       )
       |> push_graph(graph)
 
@@ -44,18 +45,21 @@ defmodule DoomElixir.Scene.Game do
     current_time = System.monotonic_time(:millisecond)
     delta_time = (current_time - state.assigns.last_update) / 1000.0
 
+    # Récupérer la position de la tête depuis l'eye tracking
+    head_position = DoomElixir.EyeTracking.get_gaze_position()
+
     # Mettre à jour en fonction des touches pressées
     new_player = update_player_from_keys(state.assigns.player, state.assigns.keys_pressed, delta_time)
 
-    # Seulement re-render si le joueur a bougé
+    # Re-render si le joueur a bougé OU si la tête a bougé
     state =
-      if new_player != state.assigns.player do
+      if new_player != state.assigns.player || head_position != state.assigns.head_position do
         graph =
           Graph.build()
-          |> render_3d_view(new_player)
+          |> render_3d_view(new_player, head_position)
 
         state
-        |> assign(player: new_player, last_update: current_time)
+        |> assign(player: new_player, last_update: current_time, head_position: head_position)
         |> push_graph(graph)
       else
         assign(state, last_update: current_time)
@@ -163,24 +167,38 @@ defmodule DoomElixir.Scene.Game do
     end
   end
 
-  defp render_3d_view(graph, player) do
+  defp render_3d_view(graph, player, head_position) do
     # Optimisé : utiliser un nombre fixe de rayons au lieu de 500
-    rays = cast_optimized_rays(player)
+    rays = cast_optimized_rays(player, head_position)
 
-    # Fond (ciel et sol avec dégradé)
+    # Calculer l'offset de perspective basé sur la position de la tête
+    {head_x, head_y} = head_position
+    # Convertir de [0, 1] à [-1, 1] pour centrer
+    perspective_x = (head_x - 0.5) * 2.0
+    perspective_y = (head_y - 0.5) * 2.0
+
+    # Fond (ciel et sol avec dégradé) - décalé selon la position de la tête
+    horizon_offset = trunc(perspective_y * 100)
+
     graph =
       graph
-      |> rect({@width, @height / 2}, fill: {:color, {100, 149, 237}}, translate: {0, 0})
-      |> rect({@width, @height / 2}, fill: {:color, {85, 107, 47}}, translate: {0, @height / 2})
+      |> rect({@width, @height / 2 + horizon_offset}, fill: {:color, {100, 149, 237}}, translate: {0, 0})
+      |> rect({@width, @height / 2 - horizon_offset}, fill: {:color, {85, 107, 47}}, translate: {0, @height / 2 + horizon_offset})
 
-    # Dessiner les murs avec couleurs basées sur orientation
+    # Dessiner les murs avec couleurs basées sur orientation et effet de parallaxe
     graph =
       rays
       |> Enum.with_index()
       |> Enum.reduce(graph, fn {ray, x}, acc ->
         wall_height = calculate_wall_height(ray.distance)
-        wall_start = (@height - wall_height) / 2
-        wall_x = x * (@width / @num_rays)
+
+        # Effet de parallaxe : les murs proches bougent plus que les murs loin
+        parallax_factor = 1.0 / (ray.distance + 0.5)
+        horizontal_shift = perspective_x * 30 * parallax_factor
+        vertical_shift = horizon_offset + (perspective_y * 20 * parallax_factor)
+
+        wall_start = (@height - wall_height) / 2 + vertical_shift
+        wall_x = x * (@width / @num_rays) + horizontal_shift
 
         # Couleur basée sur la distance et l'orientation du mur
         base_color = get_wall_color(ray)
@@ -286,10 +304,16 @@ defmodule DoomElixir.Scene.Game do
     |> text(controls, translate: {10, @height - 20}, fill: :lime, font_size: 14)
   end
 
-  defp cast_optimized_rays(player) do
+  defp cast_optimized_rays(player, {head_x, head_y}) do
+    # Ajuster le FOV et l'angle de base selon la position de la tête
+    head_offset_x = (head_x - 0.5) * 0.3  # Ajustement subtil de l'angle
+    head_offset_y = (head_y - 0.5) * 0.2  # Pour futur support vertical
+
     for i <- 0..(@num_rays - 1) do
       screen_x = i * (500 / @num_rays)
-      Raycaster.cast_single_ray_public(player, screen_x)
+      # Créer un joueur virtuel avec angle ajusté
+      adjusted_player = %{player | angle: player.angle + head_offset_x}
+      Raycaster.cast_single_ray_public(adjusted_player, screen_x)
     end
   end
 

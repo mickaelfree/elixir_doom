@@ -16,6 +16,7 @@ defmodule DoomElixir.Application do
     ]
 
     children = [
+      {DoomElixir.EyeTracking, [mode: :webcam]},
       {Scenic, [main_viewport_config]}
     ]
 
