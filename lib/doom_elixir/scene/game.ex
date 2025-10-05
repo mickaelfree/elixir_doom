@@ -8,10 +8,11 @@ defmodule DoomElixir.Scene.Game do
   @width 800
   @height 600
   @num_rays 400
-  @move_speed 0.15
-  @rotation_speed 0.08
+  @move_speed 0.2
+  @rotation_speed 0.12
   @minimap_size 150
   @minimap_scale 15
+  @frame_rate 60
 
   def init(scene, _param, _opts) do
     player = Player.new(3.5, 3.5, 0.0)
@@ -22,142 +23,144 @@ defmodule DoomElixir.Scene.Game do
 
     scene =
       scene
-      |> assign(player: player)
+      |> assign(
+        player: player,
+        keys_pressed: MapSet.new(),
+        last_update: System.monotonic_time(:millisecond)
+      )
       |> push_graph(graph)
 
     # Request keyboard input
     Scenic.ViewPort.Input.request(scene.viewport, [:key])
 
+    # Démarrer la boucle de mise à jour
+    Process.send_after(self(), :update, trunc(1000 / @frame_rate))
+
     {:ok, scene}
   end
 
-  # Gestion des événements clavier - Format: {:key, {key_atom, action, modifiers}}
-  # action: 1 = press, 2 = repeat, 0 = release
-  # W/A/S/D - on ignore les release (0)
-  def handle_input({:key, {:key_w, action, _}}, _id, state) when action > 0 do
-    {:noreply, move_player(state, :forward)}
-  end
+  # Boucle de mise à jour continue
+  def handle_info(:update, state) do
+    current_time = System.monotonic_time(:millisecond)
+    delta_time = (current_time - state.assigns.last_update) / 1000.0
 
-  def handle_input({:key, {:key_s, action, _}}, _id, state) when action > 0 do
-    {:noreply, move_player(state, :backward)}
-  end
+    # Mettre à jour en fonction des touches pressées
+    new_player = update_player_from_keys(state.assigns.player, state.assigns.keys_pressed, delta_time)
 
-  def handle_input({:key, {:key_a, action, _}}, _id, state) when action > 0 do
-    {:noreply, move_player(state, :turn_left)}
-  end
+    # Seulement re-render si le joueur a bougé
+    state =
+      if new_player != state.assigns.player do
+        graph =
+          Graph.build()
+          |> render_3d_view(new_player)
 
-  def handle_input({:key, {:key_d, action, _}}, _id, state) when action > 0 do
-    {:noreply, move_player(state, :turn_right)}
-  end
+        state
+        |> assign(player: new_player, last_update: current_time)
+        |> push_graph(graph)
+      else
+        assign(state, last_update: current_time)
+      end
 
-  # Touches fléchées
-  def handle_input({:key, {:key_up, action, _}}, _id, state) when action > 0 do
-    {:noreply, move_player(state, :forward)}
-  end
+    # Programmer la prochaine mise à jour
+    Process.send_after(self(), :update, trunc(1000 / @frame_rate))
 
-  def handle_input({:key, {:key_down, action, _}}, _id, state) when action > 0 do
-    {:noreply, move_player(state, :backward)}
-  end
-
-  def handle_input({:key, {:key_left, action, _}}, _id, state) when action > 0 do
-    {:noreply, move_player(state, :turn_left)}
-  end
-
-  def handle_input({:key, {:key_right, action, _}}, _id, state) when action > 0 do
-    {:noreply, move_player(state, :turn_right)}
-  end
-
-  # Strafing (Q/E)
-  def handle_input({:key, {:key_q, action, _}}, _id, state) when action > 0 do
-    {:noreply, move_player(state, :strafe_left)}
-  end
-
-  def handle_input({:key, {:key_e, action, _}}, _id, state) when action > 0 do
-    {:noreply, move_player(state, :strafe_right)}
-  end
-
-  # Logger pour debug - afficher tous les événements non gérés
-  def handle_input(input, _id, state) do
-    Logger.debug("Unhandled input: #{inspect(input)}")
     {:noreply, state}
   end
 
-  defp move_player(state, :forward) do
-    player = state.assigns.player
+  # Gestion des événements clavier - on maintient un état des touches pressées
+  # Press (1 ou 2)
+  def handle_input({:key, {key, action, _}}, _id, state) when action > 0 and key in [:key_w, :key_s, :key_a, :key_d, :key_q, :key_e, :key_up, :key_down, :key_left, :key_right] do
+    keys_pressed = MapSet.put(state.assigns.keys_pressed, key)
+    {:noreply, assign(state, keys_pressed: keys_pressed)}
+  end
+
+  # Release (0)
+  def handle_input({:key, {key, 0, _}}, _id, state) when key in [:key_w, :key_s, :key_a, :key_d, :key_q, :key_e, :key_up, :key_down, :key_left, :key_right] do
+    keys_pressed = MapSet.delete(state.assigns.keys_pressed, key)
+    {:noreply, assign(state, keys_pressed: keys_pressed)}
+  end
+
+  # Ignorer les autres événements
+  def handle_input(_input, _id, state) do
+    {:noreply, state}
+  end
+
+  # Mise à jour du joueur basée sur les touches pressées
+  defp update_player_from_keys(player, keys_pressed, _delta_time) do
+    player
+    |> apply_key_movement(keys_pressed)
+  end
+
+  defp apply_key_movement(player, keys_pressed) do
+    player
+    |> move_if_key_pressed(keys_pressed, [:key_w, :key_up], :forward)
+    |> move_if_key_pressed(keys_pressed, [:key_s, :key_down], :backward)
+    |> move_if_key_pressed(keys_pressed, [:key_a, :key_left], :turn_left)
+    |> move_if_key_pressed(keys_pressed, [:key_d, :key_right], :turn_right)
+    |> move_if_key_pressed(keys_pressed, [:key_q], :strafe_left)
+    |> move_if_key_pressed(keys_pressed, [:key_e], :strafe_right)
+  end
+
+  defp move_if_key_pressed(player, keys_pressed, keys, action) do
+    if Enum.any?(keys, &MapSet.member?(keys_pressed, &1)) do
+      apply_movement(player, action)
+    else
+      player
+    end
+  end
+
+  defp apply_movement(player, :forward) do
     new_x = player.x + :math.cos(player.angle) * @move_speed
     new_y = player.y + :math.sin(player.angle) * @move_speed
 
     if WorldMap.is_wall?(trunc(new_x), trunc(new_y)) do
-      state
+      player
     else
-      new_player = %{player | x: new_x, y: new_y}
-      update_scene(state, new_player)
+      %{player | x: new_x, y: new_y}
     end
   end
 
-  defp move_player(state, :backward) do
-    player = state.assigns.player
+  defp apply_movement(player, :backward) do
     new_x = player.x - :math.cos(player.angle) * @move_speed
     new_y = player.y - :math.sin(player.angle) * @move_speed
 
     if WorldMap.is_wall?(trunc(new_x), trunc(new_y)) do
-      state
+      player
     else
-      new_player = %{player | x: new_x, y: new_y}
-      update_scene(state, new_player)
+      %{player | x: new_x, y: new_y}
     end
   end
 
-  defp move_player(state, :turn_left) do
-    player = state.assigns.player
-    new_player = %{player | angle: player.angle - @rotation_speed}
-    update_scene(state, new_player)
+  defp apply_movement(player, :turn_left) do
+    %{player | angle: player.angle - @rotation_speed}
   end
 
-  defp move_player(state, :turn_right) do
-    player = state.assigns.player
-    new_player = %{player | angle: player.angle + @rotation_speed}
-    update_scene(state, new_player)
+  defp apply_movement(player, :turn_right) do
+    %{player | angle: player.angle + @rotation_speed}
   end
 
-  defp move_player(state, :strafe_left) do
-    player = state.assigns.player
-    # Strafe perpendiculaire à la direction
+  defp apply_movement(player, :strafe_left) do
     strafe_angle = player.angle - :math.pi() / 2
     new_x = player.x + :math.cos(strafe_angle) * @move_speed
     new_y = player.y + :math.sin(strafe_angle) * @move_speed
 
     if WorldMap.is_wall?(trunc(new_x), trunc(new_y)) do
-      state
+      player
     else
-      new_player = %{player | x: new_x, y: new_y}
-      update_scene(state, new_player)
+      %{player | x: new_x, y: new_y}
     end
   end
 
-  defp move_player(state, :strafe_right) do
-    player = state.assigns.player
-    # Strafe perpendiculaire à la direction
+  defp apply_movement(player, :strafe_right) do
     strafe_angle = player.angle + :math.pi() / 2
     new_x = player.x + :math.cos(strafe_angle) * @move_speed
     new_y = player.y + :math.sin(strafe_angle) * @move_speed
 
     if WorldMap.is_wall?(trunc(new_x), trunc(new_y)) do
-      state
+      player
     else
-      new_player = %{player | x: new_x, y: new_y}
-      update_scene(state, new_player)
+      %{player | x: new_x, y: new_y}
     end
-  end
-
-  defp update_scene(state, new_player) do
-    graph =
-      Graph.build()
-      |> render_3d_view(new_player)
-
-    state
-    |> assign(player: new_player)
-    |> push_graph(graph)
   end
 
   defp render_3d_view(graph, player) do
