@@ -3,6 +3,7 @@ defmodule DoomElixir.Scene.Game do
   alias Scenic.Graph
   alias DoomElixir.{Player, Raycaster, WorldMap}
   import Scenic.Primitives
+  require Logger
 
   @width 800
   @height 600
@@ -22,45 +23,50 @@ defmodule DoomElixir.Scene.Game do
       |> assign(player: player)
       |> push_graph(graph)
 
+    # Request keyboard input
+    Scenic.ViewPort.Input.request(scene.viewport, [:key])
+
     {:ok, scene}
   end
 
-  # Gestion des événements clavier
-  def handle_input({:key, {"W", :press, _}}, _context, state) do
+  # Gestion des événements clavier - Format: {:key, {key_atom, 1=press/0=release, modifiers}}
+  # W/A/S/D
+  def handle_input({:key, {:key_w, 1, _}}, _id, state) do
     {:noreply, move_player(state, :forward)}
   end
 
-  def handle_input({:key, {"S", :press, _}}, _context, state) do
+  def handle_input({:key, {:key_s, 1, _}}, _id, state) do
     {:noreply, move_player(state, :backward)}
   end
 
-  def handle_input({:key, {"A", :press, _}}, _context, state) do
+  def handle_input({:key, {:key_a, 1, _}}, _id, state) do
     {:noreply, move_player(state, :turn_left)}
   end
 
-  def handle_input({:key, {"D", :press, _}}, _context, state) do
+  def handle_input({:key, {:key_d, 1, _}}, _id, state) do
     {:noreply, move_player(state, :turn_right)}
   end
 
   # Touches fléchées
-  def handle_input({:key, {:key_up, :press, _}}, _context, state) do
+  def handle_input({:key, {:key_up, 1, _}}, _id, state) do
     {:noreply, move_player(state, :forward)}
   end
 
-  def handle_input({:key, {:key_down, :press, _}}, _context, state) do
+  def handle_input({:key, {:key_down, 1, _}}, _id, state) do
     {:noreply, move_player(state, :backward)}
   end
 
-  def handle_input({:key, {:key_left, :press, _}}, _context, state) do
+  def handle_input({:key, {:key_left, 1, _}}, _id, state) do
     {:noreply, move_player(state, :turn_left)}
   end
 
-  def handle_input({:key, {:key_right, :press, _}}, _context, state) do
+  def handle_input({:key, {:key_right, 1, _}}, _id, state) do
     {:noreply, move_player(state, :turn_right)}
   end
 
-  # Ignorer les autres événements
-  def handle_input(_input, _context, state) do
+  # Logger pour debug - afficher tous les événements non gérés
+  def handle_input(input, _id, state) do
+    Logger.debug("Unhandled input: #{inspect(input)}")
     {:noreply, state}
   end
 
